@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Pseudonymous wellness subject. Raw resident identity is never stored here.
+model WellnessUser {
+  id             String   @id @default(cuid())
+  wellnessUserId String   @unique
+  propertyId     String
+  timezone       String
+  platform       String
+  appVersion     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  property        Property               @relation(fields: [propertyId], references: [propertyId])
+  dailyHealthData DailyHealthData[]
+  profile         WellnessProfile?
+  recommendations Recommendation[]
+  devices         NotificationDevice[]
+  notifications   Notification[]
+  feedback        WellnessFeedback[]
+  preferences     UserPreferenceSignal[]
+
+  @@index([propertyId])
+}
+
+model DailyHealthData {
+  id               String   @id @default(cuid())
+  wellnessUserId   String
+  date             DateTime @db.Date
+  steps            Int
+  distanceMeters   Int
+  activeCalories   Int
+  restingHeartRate Int?
+  averageHeartRate Int?
+  sleepMinutes     Int?
+  dataAvailability Json
+  dataQuality      Float
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user WellnessUser @relation(fields: [wellnessUserId], references: [wellnessUserId])
+
+  @@unique([wellnessUserId, date])
+  @@index([wellnessUserId, date])
+}
+
+model WellnessProfile {
+  id                    String   @id @default(cuid())
+  wellnessUserId        String   @unique
+  activityLevel         String
+  sleepLevel            String
+  recoveryLevel         String
+  activityTrend         String
+  sleepTrend            String
+  consistencyScore      Float
+  avgSteps7d            Float
+  avgSleepMinutes7d     Float
+  avgRestingHeartRate7d Float?
+  profileData           Json
+  calculatedAt          DateTime
+  profileVersion        Int      @default(1)
+
+  user WellnessUser @relation(fields: [wellnessUserId], references: [wellnessUserId])
+}
+
+model Property {
+  id         String   @id @default(cuid())
+  propertyId String   @unique
+  name       String
+  timezone   String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  features PropertyFeature[]
+  users    WellnessUser[]
+  recommendations Recommendation[]
+}
+
+model PropertyFeature {
+  id          String   @id @default(cuid())
+  featureId   String
+  propertyId  String
+  featureType String
+  name        String
+  category    String
+  serviceId   String?
+  outletId    String?
+  enabled     Boolean  @default(true)
+  available   Boolean  @default(true)
+  deepLink    String
+  tags        Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [propertyId])
+
+  @@unique([propertyId, featureId])
+  @@index([propertyId, enabled, available])
+}
+
+model Recommendation {
+  id                 String   @id @default(cuid())
+  recommendationId   String   @unique
+  wellnessUserId     String
+  propertyId         String
+  featureId          String?
+  recommendationType String
+  category           String
+  title              String
+  message            String
+  reasonCode         String
+  confidence         Float
+  context            Json
+  generatedBy        String
+  status             String
+  createdAt          DateTime @default(now())
+  expiresAt          DateTime
+
+  user          WellnessUser        @relation(fields: [wellnessUserId], references: [wellnessUserId])
+  property      Property            @relation(fields: [propertyId], references: [propertyId])
+  notifications Notification[]
+  feedback      WellnessFeedback[]
+
+  @@index([wellnessUserId, createdAt])
+  @@index([propertyId, createdAt])
+  @@index([wellnessUserId, status, expiresAt])
+}
+
+model NotificationDevice {
+  id                   String   @id @default(cuid())
+  wellnessUserId       String
+  deviceId             String
+  platform             String
+  fcmToken             String
+  appVersion           String
+  notificationsEnabled Boolean  @default(true)
+  lastSeenAt           DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user WellnessUser @relation(fields: [wellnessUserId], references: [wellnessUserId])
+
+  @@unique([wellnessUserId, deviceId])
+  @@index([wellnessUserId])
+}
+
+model Notification {
+  id                String    @id @default(cuid())
+  notificationId    String    @unique
+  recommendationId  String?
+  wellnessUserId    String
+  type              String
+  title             String
+  body              String
+  deepLink          String?
+  featureId         String?
+  status            String
+  priority          String
+  scheduledAt       DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  actionedAt        DateTime?
+  provider          String?
+  providerMessageId String?
+  failureReason     String?
+  createdAt         DateTime  @default(now())
+
+  recommendation Recommendation? @relation(fields: [recommendationId], references: [recommendationId])
+  user           WellnessUser    @relation(fields: [wellnessUserId], references: [wellnessUserId])
+
+  @@index([wellnessUserId, createdAt])
+  @@index([status, scheduledAt])
+  @@index([recommendationId])
+}
+
+model WellnessFeedback {
+  id               String   @id @default(cuid())
+  recommendationId String
+  wellnessUserId   String
+  action           String
+  rating           Int?
+  feedback         String?
+  createdAt        DateTime @default(now())
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [recommendationId])
+  user           WellnessUser   @relation(fields: [wellnessUserId], references: [wellnessUserId])
+
+  @@index([recommendationId])
+  @@index([wellnessUserId, createdAt])
+}
+
+model UserPreferenceSignal {
+  id               String   @id @default(cuid())
+  wellnessUserId   String
+  featureId        String
+  preferenceScore  Float    @default(0)
+  interactionCount Int      @default(0)
+  positiveCount    Int      @default(0)
+  negativeCount    Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  user WellnessUser @relation(fields: [wellnessUserId], references: [wellnessUserId])
+
+  @@unique([wellnessUserId, featureId])
+  @@index([wellnessUserId])
+}

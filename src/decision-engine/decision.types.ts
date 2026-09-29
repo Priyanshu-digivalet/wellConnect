@@ -1,0 +1,30 @@
+export const WELLNESS_STATES = [
+  'ACTIVE',
+  'LOW_ACTIVITY',
+  'RECOVERY_NEEDED',
+  'SLEEP_FOCUS',
+  'BALANCED',
+  'INSUFFICIENT_DATA',
+] as const;
+
+export type WellnessState = (typeof WELLNESS_STATES)[number];
+
+export const REASON_CODES = [
+  'HIGH_ACTIVITY_ADEQUATE_SLEEP',
+  'LOW_ACTIVITY',
+  'HIGH_ACTIVITY_LOW_SLEEP',
+  'LOW_SLEEP',
+  'BALANCED',
+  'INSUFFICIENT_DATA',
+] as const;
+
+export type ReasonCode = (typeof REASON_CODES)[number];
+
+export const REASON_BY_STATE: Record<WellnessState, ReasonCode> = {
+  ACTIVE: 'HIGH_ACTIVITY_ADEQUATE_SLEEP',
+  LOW_ACTIVITY: 'LOW_ACTIVITY',
+  RECOVERY_NEEDED: 'HIGH_ACTIVITY_LOW_SLEEP',
+  SLEEP_FOCUS: 'LOW_SLEEP',
+  BALANCED: 'BALANCED',
+  INSUFFICIENT_DATA: 'INSUFFICIENT_DATA',
+};
