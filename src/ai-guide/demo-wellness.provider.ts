@@ -22,7 +22,10 @@ export class DemoWellnessProvider implements WellnessAIProvider {
         category: copy.category,
         featureId: candidate?.featureId ?? null,
         title: copy.title,
-        message: candidate ? copy.message(candidate.name) : copy.message(''),
+        message: personalizeMessage(
+          candidate ? copy.message(candidate.name) : copy.message(''),
+          context,
+        ),
         reasonCode: context.reasonCode,
         confidence: Number(confidence.toFixed(2)),
       },
@@ -128,6 +131,28 @@ const PERSONAL_CARE_BY_STATE: Partial<Record<WellnessState, Copy>> = {
       'Activity and sleep look steady. A short stretch or a brief walk is a simple way to keep the day feeling balanced.',
   },
 };
+
+function personalizeMessage(base: string, context: WellnessAIContext): string {
+  const hints = context.lifestyle?.hints;
+  if (!hints || base.length > 280) {
+    return base;
+  }
+  if (hints.preferShortBreaks) {
+    return `${base} A quick 3-minute reset tends to work well for you.`;
+  }
+  if (
+    hints.lowActivityWindowStartHour != null &&
+    hints.lowActivityWindowEndHour != null &&
+    !candidateMention(base)
+  ) {
+    return `${base} Your activity often dips mid-afternoon, so now is a good window to move.`;
+  }
+  return base;
+}
+
+function candidateMention(message: string): boolean {
+  return message.toLowerCase().includes('mid-afternoon');
+}
 
 function personalCareFromMetrics(
   activity: ActivityLevel,

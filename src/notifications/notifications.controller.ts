@@ -12,6 +12,7 @@ import { AuthUser } from '../auth/auth.types';
 // import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiStandardErrors } from '../common/decorators/api-standard-errors.decorator';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { SendTestPushDto } from './dto/send-test-push.dto';
 import { NotificationService } from './notification.service';
 
 @ApiTags('notifications')
@@ -27,6 +28,17 @@ export class NotificationsController {
   @ApiStandardErrors()
   register(@CurrentUser() user: AuthUser, @Body() dto: RegisterDeviceDto) {
     return this.notifications.registerDevice(user, dto);
+  }
+
+  @Post('test-push')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Send a test FCM push immediately (bypasses quiet hours, cooldown, and recommendation policy)',
+  })
+  @ApiStandardErrors()
+  testPush(@CurrentUser() user: AuthUser, @Body() dto: SendTestPushDto) {
+    return this.notifications.sendTestPush(user, dto);
   }
 
   @Post(':id/opened')

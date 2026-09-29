@@ -29,6 +29,7 @@ Generated from NestJS controllers and class-validator DTOs.
 | POST | `/api/v1/wellness/recommendations/generate` | Bearer (intended) | Generate recommendation |
 | POST | `/api/v1/wellness/feedback` | Bearer (intended) | Submit feedback |
 | POST | `/api/v1/notifications/devices` | Bearer (intended) | Register FCM device |
+| POST | `/api/v1/notifications/test-push` | Bearer (intended) | Send immediate test FCM push |
 | POST | `/api/v1/notifications/:id/opened` | Bearer (intended) | Mark notification opened |
 | POST | `/api/v1/notifications/:id/actioned` | Bearer (intended) | Mark notification actioned |
 | GET | `/api/v1/properties/:propertyId/features` | Bearer (intended) | List property features |
@@ -233,6 +234,27 @@ Authorization header only; uses stored health data for the authenticated user.
   "fcmToken": "fcm-token-from-firebase-sdk",
   "appVersion": "1.0.0",
   "notificationsEnabled": true
+}
+```
+
+### `POST /api/v1/notifications/test-push`
+
+**Request type:** `SendTestPushDto`  
+Sends an FCM push immediately to the caller's registered enabled devices. Bypasses quiet hours, cooldown, and recommendation generation. Requires Firebase env vars and a prior device registration.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `title` | string | No | Default: `WellConnect test` |
+| `body` | string | No | Default test message |
+| `deviceId` | string | No | Limit send to one registered device |
+| `featureId` | string | No | Optional data payload field |
+| `deepLink` | string | No | Optional data payload field |
+
+```json
+{
+  "title": "WellConnect test",
+  "body": "If you see this, FCM delivery is working.",
+  "deviceId": "device-123"
 }
 ```
 

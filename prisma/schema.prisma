@@ -20,7 +20,8 @@ model WellnessUser {
 
   property        Property               @relation(fields: [propertyId], references: [propertyId])
   dailyHealthData DailyHealthData[]
-  profile         WellnessProfile?
+  profile          WellnessProfile?
+  lifestyleProfile WellnessLifestyleProfile?
   recommendations Recommendation[]
   devices         NotificationDevice[]
   notifications   Notification[]
@@ -40,6 +41,8 @@ model DailyHealthData {
   restingHeartRate Int?
   averageHeartRate Int?
   sleepMinutes     Int?
+  hourlySteps      Json?
+  dayContext       Json?
   dataAvailability Json
   dataQuality      Float
   createdAt        DateTime @default(now())
@@ -49,6 +52,20 @@ model DailyHealthData {
 
   @@unique([wellnessUserId, date])
   @@index([wellnessUserId, date])
+}
+
+model WellnessLifestyleProfile {
+  id               String   @id @default(cuid())
+  wellnessUserId   String   @unique
+  phase            String
+  observationDays  Int
+  patternsData     Json
+  lifestyleSummary Json
+  wellnessJourney  Json
+  calculatedAt     DateTime
+  profileVersion   Int      @default(1)
+
+  user WellnessUser @relation(fields: [wellnessUserId], references: [wellnessUserId])
 }
 
 model WellnessProfile {
@@ -189,6 +206,7 @@ model WellnessFeedback {
   action           String
   rating           Int?
   feedback         String?
+  context          Json?
   createdAt        DateTime @default(now())
 
   recommendation Recommendation @relation(fields: [recommendationId], references: [recommendationId])

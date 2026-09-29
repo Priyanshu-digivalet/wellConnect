@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -71,6 +71,13 @@ export class DataAvailabilityDto {
   sleep!: boolean;
 }
 
+export class DayContextDto {
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  meetingHeavy?: boolean;
+}
+
 export class DailyHealthDataDto {
   @ApiProperty({ example: '2026-09-23' })
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
@@ -119,6 +126,24 @@ export class DailyHealthDataDto {
   @ValidateNested()
   @Type(() => DataAvailabilityDto)
   dataAvailability!: DataAvailabilityDto;
+
+  @ApiPropertyOptional({
+    description: '24 hourly step buckets for pattern detection (index 0 = midnight hour)',
+    example: [0, 0, 0, 0, 120, 450, 800],
+  })
+  @IsOptional()
+  @ArrayMinSize(24)
+  @ArrayMaxSize(24)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(MAX_STEPS, { each: true })
+  hourlySteps?: number[];
+
+  @ApiPropertyOptional({ type: DayContextDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DayContextDto)
+  dayContext?: DayContextDto;
 }
 
 export class UserContextDto {

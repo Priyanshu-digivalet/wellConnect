@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import {
+  GENTLE_FEATURE_TAGS,
+  INTENSE_FEATURE_TAGS,
   STATE_FEATURE_TYPES,
   STRONG_NEGATIVE_PREFERENCE,
 } from '../common/wellness.constants';
 import { CandidateFeature, ResolverInput } from './candidate.types';
+
+type LifestyleHints = ResolverInput['lifestyleHints'];
 
 @Injectable()
 export class CandidateResolverService {
@@ -57,12 +61,32 @@ export class CandidateResolverService {
         const typeScore =
           typeIndex === -1 ? 0 : (typeOrder.length - typeIndex) / typeOrder.length;
         const preferenceScore = preferences.get(feature.featureId) ?? 0;
-        return { feature, score: typeScore + preferenceScore };
+        const lifestyleBoost = this.lifestyleBoost(feature, input.lifestyleHints);
+        return { feature, score: typeScore + preferenceScore + lifestyleBoost };
       })
       .sort(
         (left, right) =>
           right.score - left.score || left.feature.name.localeCompare(right.feature.name),
       )
       .map((item) => item.feature);
+  }
+
+  private lifestyleBoost(
+    feature: CandidateFeature,
+    hints: LifestyleHints,
+  ): number {
+    if (!hints) {
+      return 0;
+    }
+    const tags = feature.tags.map((tag) => tag.toLowerCase());
+    const gentle = tags.some((tag) => GENTLE_FEATURE_TAGS.has(tag));
+    const intense = tags.some((tag) => INTENSE_FEATURE_TAGS.has(tag));
+    if (hints.preferGentleActivities && gentle) {
+      return 0.2;
+    }
+    if (!hints.preferGentleActivities && intense && tags.length > 0) {
+      return 0.08;
+    }
+    return 0;
   }
 }

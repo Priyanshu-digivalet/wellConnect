@@ -10,6 +10,29 @@ describe('health data validation', () => {
     expect(errors.some((error) => error.message.includes('duplicate'))).toBe(true);
     expect(errors.some((error) => error.field === 'dataContext.daysAvailable')).toBe(true);
   });
+
+  it('rejects payloads where every day has all availability flags false', () => {
+    const dto = validDto();
+    dto.dailyHealthData = dto.dailyHealthData.map((day) => ({
+      ...day,
+      steps: 0,
+      distanceMeters: 0,
+      activeCalories: 0,
+      restingHeartRate: null,
+      averageHeartRate: null,
+      sleepMinutes: null,
+      dataAvailability: {
+        steps: false,
+        distance: false,
+        activeCalories: false,
+        restingHeartRate: false,
+        averageHeartRate: false,
+        sleep: false,
+      },
+    }));
+    const errors = validateHealthSubmission(dto);
+    expect(errors.some((error) => error.field === 'dailyHealthData')).toBe(true);
+  });
 });
 
 function validDto(): SubmitHealthDataDto {

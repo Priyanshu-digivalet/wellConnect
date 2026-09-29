@@ -64,3 +64,25 @@ export const NOTIFICATION_STATUSES = [
 ] as const;
 
 export const RECOMMENDATION_STATUSES = ['ACTIVE', 'EXPIRED', 'SUPERSEDED'] as const;
+
+export const LIFESTYLE_OBSERVATION_DAYS = 14;
+export const LIFESTYLE_MIN_DAYS_FOR_PATTERNS = 7;
+export const LIFESTYLE_ADAPTIVE_MIN_INSIGHTS = 2;
+export const SHORT_BREAK_MAX_MINUTES = 3;
+export const MOVEMENT_CATEGORIES = new Set(['ACTIVITY', 'FITNESS', 'WELLNESS']);
+
+export const GENTLE_FEATURE_TAGS = new Set([
+  'yoga',
+  'gentle',
+  'recovery',
+  'relaxation',
+  'stretch',
+  'spa',
+]);
+export const INTENSE_FEATURE_TAGS = new Set([
+  'fitness',
+  'activity',
+  'hi-intensity',
+  'gym',
+  'workout',
+]);

@@ -65,6 +65,17 @@ export function validateHealthSubmission(dto: SubmitHealthDataDto): FieldError[]
     requireWhenAvailable(errors, index, 'sleepMinutes', day.dataAvailability.sleep, day.sleepMinutes);
   });
 
+  const hasAnyAvailableMetric = dailyHealthData.some((day) =>
+    Object.values(day.dataAvailability ?? {}).some(Boolean),
+  );
+  if (!hasAnyAvailableMetric) {
+    errors.push({
+      field: 'dailyHealthData',
+      message:
+        'at least one day must have a true dataAvailability flag; empty Health Connect payloads are rejected so existing rows are not overwritten with zeros',
+    });
+  }
+
   return errors;
 }
 

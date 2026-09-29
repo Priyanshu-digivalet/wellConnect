@@ -7,6 +7,7 @@ import { PrismaService } from '../database/prisma.service';
 import { createPublicId } from '../common/ids';
 import { DatabaseNotificationQueue } from './database-notification.queue';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { SendTestPushDto } from './dto/send-test-push.dto';
 import { FcmService } from './fcm.service';
 import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationPriority } from './notification-policy.types';
@@ -87,6 +88,127 @@ export class NotificationService {
       `device_registered wellnessUserId=${user.wellnessUserId} deviceId=${dto.deviceId} platform=${dto.platform}`,
     );
     return toDeviceView(device);
+  }
+
+  /**
+   * Sends a push immediately via FCM, bypassing quiet hours / cooldown / recommendation policy.
+   * Intended for local and integration testing against a registered device token.
+   */
+  async sendTestPush(user: AuthUser, dto: SendTestPushDto) {
+    if (!this.fcm.isConfigured()) {
+      throw new AppException(
+        'FCM_NOT_CONFIGURED',
+        'Firebase Cloud Messaging is not configured on this server',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const devices = await this.prisma.notificationDevice.findMany({
+      where: {
+        wellnessUserId: user.wellnessUserId,
+        notificationsEnabled: true,
+        ...(dto.deviceId ? { deviceId: dto.deviceId } : {}),
+      },
+    });
+    if (devices.length === 0) {
+      throw new AppException(
+        'NO_DEVICE',
+        dto.deviceId
+          ? 'No enabled device matched the given deviceId for this user'
+          : 'No enabled FCM device is registered for this user',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const now = new Date();
+    const title = dto.title?.trim() || 'WellConnect test';
+    const body =
+      dto.body?.trim() || 'If you see this, FCM delivery is working.';
+    const featureId = dto.featureId?.trim() || null;
+    const deepLink = dto.deepLink?.trim() || null;
+    const notificationId = createPublicId('ntf');
+
+    const created = await this.prisma.notification.create({
+      data: {
+        notificationId,
+        recommendationId: null,
+        wellnessUserId: user.wellnessUserId,
+        type: 'DAILY_WELLNESS',
+        title,
+        body,
+        deepLink,
+        featureId,
+        status: 'CREATED',
+        priority: 'HIGH',
+        scheduledAt: now,
+        provider: 'fcm',
+      },
+    });
+
+    let providerMessageId: string | undefined;
+    let success = false;
+    let lastError = 'FCM_SEND_FAILED';
+    const results: Array<{
+      deviceId: string;
+      ok: boolean;
+      providerMessageId?: string;
+      errorCode?: string;
+    }> = [];
+
+    for (const device of devices) {
+      const result = await this.fcm.send(device.fcmToken, {
+        title,
+        body,
+        notificationId,
+        recommendationId: '',
+        type: 'DAILY_WELLNESS',
+        featureId,
+        deepLink,
+      });
+      results.push({
+        deviceId: device.deviceId,
+        ok: result.ok,
+        providerMessageId: result.providerMessageId,
+        errorCode: result.errorCode,
+      });
+      if (result.ok) {
+        success = true;
+        providerMessageId = result.providerMessageId;
+      } else if (result.errorCode) {
+        lastError = result.errorCode;
+      }
+    }
+
+    if (!success) {
+      await this.fail(notificationId, created.id, lastError);
+      throw new AppException(
+        lastError,
+        'Failed to deliver test push via FCM',
+        HttpStatus.BAD_GATEWAY,
+        results,
+      );
+    }
+
+    const updated = await this.prisma.notification.update({
+      where: { id: created.id },
+      data: {
+        status: 'SENT',
+        sentAt: now,
+        deliveredAt: now,
+        provider: 'fcm',
+        providerMessageId: providerMessageId ?? null,
+        failureReason: null,
+      },
+    });
+
+    this.logger.log(
+      `test_push_sent notificationId=${notificationId} wellnessUserId=${user.wellnessUserId} devices=${devices.length}`,
+    );
+
+    return {
+      notification: toNotificationView(updated),
+      devices: results,
+    };
   }
 
   async createForRecommendation(

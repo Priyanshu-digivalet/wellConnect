@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
@@ -8,8 +9,21 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { FEEDBACK_ACTIONS } from '../../common/wellness.constants';
+
+export class FeedbackContextDto {
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Break duration in minutes, used for break-style pattern detection',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  breakDurationMinutes?: number;
+}
 
 export class SubmitFeedbackDto {
   @ApiProperty({ example: 'rec_8f92ab' })
@@ -34,4 +48,10 @@ export class SubmitFeedbackDto {
   @IsString()
   @MaxLength(500)
   feedback?: string;
+
+  @ApiPropertyOptional({ type: FeedbackContextDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FeedbackContextDto)
+  context?: FeedbackContextDto;
 }

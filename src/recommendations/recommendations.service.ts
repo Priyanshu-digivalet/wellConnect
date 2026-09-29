@@ -18,6 +18,11 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { toDailyMetric } from '../health-data/daily-metric.mapper';
 import { NotificationView, NotificationService } from '../notifications/notification.service';
 import { NotificationPriority } from '../notifications/notification-policy.types';
+import { LifestylePatternsService } from '../lifestyle-patterns/lifestyle-patterns.service';
+import {
+  LifestyleSummaryView,
+  WellnessJourneyView,
+} from '../lifestyle-patterns/lifestyle-patterns.types';
 import { UsersService } from '../users/users.service';
 import { TodayRecommendationQueryDto } from './dto/today-recommendation.query.dto';
 
@@ -63,6 +68,8 @@ export interface PipelineResult {
   profile: ProfileView;
   recommendation: RecommendationView | null;
   notification: NotificationView | null;
+  lifestyleSummary: LifestyleSummaryView | null;
+  wellnessJourney: WellnessJourneyView | null;
   warnings: PipelineWarning[];
   reused: boolean;
 }
@@ -81,6 +88,7 @@ export class RecommendationsService {
     private readonly validator: AIOutputValidator,
     private readonly notifications: NotificationService,
     private readonly feedback: FeedbackService,
+    private readonly lifestyle: LifestylePatternsService,
     private readonly config: ConfigService,
   ) {}
 
@@ -172,6 +180,7 @@ export class RecommendationsService {
     const analytics = this.analytics.calculate(metrics);
     const decision = this.decisions.decide(analytics);
     const profile = await this.saveProfile(user.wellnessUserId, user.propertyId, analytics, decision);
+    const lifestyleBundle = await this.lifestyle.refresh(wellnessUserId);
     this.logger.log(
       `analytics_calculated wellnessUserId=${wellnessUserId} state=${decision.state} completeness=${analytics.dataQuality.completeness} requestId=${requestId}`,
     );
@@ -213,6 +222,8 @@ export class RecommendationsService {
               actionedAt: notification.actionedAt?.toISOString() ?? null,
             }
           : null,
+        lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
+        wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
         warnings: [],
         reused: true,
       };
@@ -225,7 +236,7 @@ export class RecommendationsService {
     }
 
     if (decision.state === 'INSUFFICIENT_DATA') {
-      return this.storeDeterministic(user, profile, decision, analytics, requestId, {
+      return this.storeDeterministic(user, profile, decision, analytics, requestId, lifestyleBundle, {
         type: 'DAILY_WELLNESS',
         category: 'GENERAL',
         featureId: null,
@@ -254,6 +265,7 @@ export class RecommendationsService {
     const preferences = await this.prisma.userPreferenceSignal.findMany({
       where: { wellnessUserId },
     });
+    const lifestyleHints = lifestyleBundle?.adaptationHints ?? null;
     const resolved = this.candidates.resolve({
       state: decision.state,
       propertyId: user.propertyId,
@@ -266,6 +278,7 @@ export class RecommendationsService {
         enabled: feature.enabled,
         available: feature.available,
         deepLink: feature.deepLink,
+        tags: parseFeatureTags(feature.tags),
       })),
       history: history.map((item) => ({
         featureId: item.featureId,
@@ -278,6 +291,7 @@ export class RecommendationsService {
       dismissedFeatureIds,
       now,
       cooldownHours,
+      lifestyleHints,
     });
 
     if (resolved.length === 0) {
@@ -306,6 +320,14 @@ export class RecommendationsService {
         featureId: item.featureId,
         preferenceScore: item.preferenceScore,
       })),
+      lifestyle: lifestyleBundle
+        ? {
+            phase: lifestyleBundle.lifestyleSummary.phase,
+            insights: lifestyleBundle.lifestyleSummary.insights,
+            hints: lifestyleBundle.adaptationHints,
+            journeyFocus: lifestyleBundle.wellnessJourney.focusAreas,
+          }
+        : undefined,
     };
 
     let generated;
@@ -316,6 +338,8 @@ export class RecommendationsService {
         profile,
         recommendation: null,
         notification: null,
+        lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
+        wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
         warnings: [
           { code: 'AI_PROVIDER_ERROR', message: 'The wellness guide could not generate a recommendation' },
         ],
@@ -336,13 +360,15 @@ export class RecommendationsService {
         profile,
         recommendation: null,
         notification: null,
+        lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
+        wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
         warnings: [{ code: validated.code, message: validated.message }],
         reused: false,
       };
     }
 
     if (!validated.value.featureId) {
-      return this.storeDeterministic(user, profile, decision, analytics, requestId, {
+      return this.storeDeterministic(user, profile, decision, analytics, requestId, lifestyleBundle, {
         type: validated.value.type,
         category: validated.value.category,
         featureId: null,
@@ -373,6 +399,8 @@ export class RecommendationsService {
         profile,
         recommendation: null,
         notification: null,
+        lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
+        wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
         warnings: [
           {
             code: 'UNKNOWN_FEATURE',
@@ -383,7 +411,7 @@ export class RecommendationsService {
       };
     }
 
-    return this.storeDeterministic(user, profile, decision, analytics, requestId, {
+    return this.storeDeterministic(user, profile, decision, analytics, requestId, lifestyleBundle, {
       type: validated.value.type,
       category: validated.value.category,
       featureId: feature.featureId,
@@ -407,6 +435,10 @@ export class RecommendationsService {
     decision: WellnessDecision,
     analytics: WellnessAnalytics,
     requestId: string,
+    lifestyleBundle: {
+      lifestyleSummary: LifestyleSummaryView;
+      wellnessJourney: WellnessJourneyView;
+    } | null,
     draft: {
       type: string;
       category: string;
@@ -455,6 +487,7 @@ export class RecommendationsService {
             activityTrend: analytics.activity.trend,
             sleepTrend: analytics.sleep.trend,
           },
+          lifestyleInsightCodes: lifestyleBundle?.lifestyleSummary.insights.map((item) => item.code) ?? [],
         } as Prisma.InputJsonValue,
       },
     });
@@ -485,6 +518,8 @@ export class RecommendationsService {
       profile,
       recommendation: toRecommendationView(recommendation, links),
       notification: planned.notification,
+      lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
+      wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
       warnings:
         draft.eligible && planned.skippedReason
           ? [{ code: planned.skippedReason, message: 'Notification was not created' }]
@@ -628,6 +663,13 @@ interface ProfileSnapshot {
   recovery: WellnessAnalytics['recovery'];
   consistency: WellnessAnalytics['consistency'];
   dataQuality: WellnessAnalytics['dataQuality'];
+}
+
+function parseFeatureTags(tags: Prisma.JsonValue): string[] {
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+  return tags.map((tag) => String(tag).toLowerCase());
 }
 
 function toRecommendationView(

@@ -26,6 +26,7 @@ describe('wellness flow', () => {
       enabled: true,
       available: true,
       deepLink: 'app://facility/gym',
+      tags: ['fitness', 'activity'],
     },
     {
       featureId: 'facility_pool',
@@ -36,6 +37,7 @@ describe('wellness flow', () => {
       enabled: true,
       available: true,
       deepLink: 'app://facility/pool',
+      tags: ['fitness', 'recovery'],
     },
     {
       featureId: 'service_spa',
@@ -46,6 +48,7 @@ describe('wellness flow', () => {
       enabled: true,
       available: true,
       deepLink: 'app://service/spa',
+      tags: ['recovery', 'relaxation', 'spa'],
     },
   ];
 

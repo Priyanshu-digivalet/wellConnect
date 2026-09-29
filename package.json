@@ -6,16 +6,19 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:prod": "node dist/main",
+    "start": "prisma migrate deploy && nest start",
+    "start:dev": "prisma migrate deploy && nest start --watch",
+    "start:prod": "prisma migrate deploy && node dist/main",
     "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\"",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "db:start": "bash scripts/db-start.sh",
+    "db:stop": "node_modules/@embedded-postgres/darwin-arm64/native/bin/pg_ctl -D .pgdata stop -m fast"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -78,5 +78,6 @@ function feature(
     enabled,
     available,
     deepLink: `app://feature/${featureId}`,
+    tags: [],
   };
 }

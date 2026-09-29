@@ -20,21 +20,27 @@ export class FcmService implements OnModuleInit {
   onModuleInit(): void {
     const projectId = this.config.get<string>('firebaseProjectId') ?? '';
     const clientEmail = this.config.get<string>('firebaseClientEmail') ?? '';
-    const privateKey = (this.config.get<string>('firebasePrivateKey') ?? '').replace(
-      /\\n/g,
-      '\n',
+    const privateKey = normalizePrivateKey(
+      this.config.get<string>('firebasePrivateKey') ?? '',
     );
     if (!projectId || !clientEmail || !privateKey) {
       this.logger.warn('fcm_not_configured');
       return;
     }
-    if (getApps().length === 0) {
-      initializeApp({
-        credential: cert({ projectId, clientEmail, privateKey }),
-      });
+    try {
+      if (getApps().length === 0) {
+        initializeApp({
+          credential: cert({ projectId, clientEmail, privateKey }),
+        });
+      }
+      this.ready = true;
+      this.logger.log('fcm_configured');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'fcm_init_failed';
+      this.logger.error(`fcm_init_failed message=${message}`);
+      this.logger.warn('fcm_not_configured');
+      this.ready = false;
     }
-    this.ready = true;
-    this.logger.log('fcm_configured');
   }
 
   isConfigured(): boolean {
@@ -72,4 +78,19 @@ function readErrorCode(error: unknown): string {
     return String((error as { code: unknown }).code);
   }
   return 'FCM_SEND_FAILED';
+}
+
+function normalizePrivateKey(raw: string): string {
+  let key = raw.trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1);
+  }
+  key = key.replace(/\\n/g, '\n').trim();
+  if (key && !key.includes('BEGIN PRIVATE KEY')) {
+    key = `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----\n`;
+  }
+  return key;
 }

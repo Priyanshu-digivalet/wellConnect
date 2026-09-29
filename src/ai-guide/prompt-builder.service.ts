@@ -14,9 +14,10 @@ export class PromptBuilderService {
         'Do not mention disease, medication, or clinical treatment.',
         'Return JSON with this shape:',
         '{"recommendation":{"type":"WELLNESS_ACTIVITY","category":"RECOVERY|ACTIVITY|SLEEP|DINING|GENERAL","featureId":"...","title":"...","message":"...","reasonCode":"...","confidence":0.8},"notification":{"eligible":true,"priority":"LOW|NORMAL|HIGH","delivery":"PUSH","scheduleType":"IMMEDIATE"},"safety":{"medicalAdvice":false}}',
-        'Use the reasonCode provided in the context. Keep the title under 80 characters and the message under 320 characters.',
-        'Omit deepLink. The backend supplies it.',
-      ].join(' ');
+      'Use the reasonCode provided in the context. When lifestyle.insights are present, reflect the user behavioral patterns in the message without inventing new patterns.',
+      'Keep the title under 80 characters and the message under 320 characters.',
+      'Omit deepLink. The backend supplies it.',
+    ].join(' ');
     }
 
     return [
@@ -29,6 +30,7 @@ export class PromptBuilderService {
       'Return JSON with this shape:',
       '{"recommendation":{"type":"DAILY_WELLNESS","category":"RECOVERY|ACTIVITY|SLEEP|GENERAL","featureId":null,"title":"...","message":"...","reasonCode":"...","confidence":0.8},"notification":{"eligible":true,"priority":"LOW|NORMAL|HIGH","delivery":"PUSH","scheduleType":"IMMEDIATE"},"safety":{"medicalAdvice":false}}',
       'featureId must be null. Omit deepLink.',
+      'Use lifestyle.insights when present to personalize timing and break length. Do not invent patterns.',
       'Use the reasonCode provided in the context. Keep the title under 80 characters and the message under 320 characters.',
     ].join(' ');
   }
@@ -47,6 +49,7 @@ export class PromptBuilderService {
       candidates: context.candidates.map((candidate) => this.publicCandidate(candidate)),
       preferences: context.preferences,
       mode: context.candidates.length === 0 ? 'PERSONAL_CARE' : 'PROPERTY_FEATURE',
+      lifestyle: context.lifestyle,
     });
   }
 

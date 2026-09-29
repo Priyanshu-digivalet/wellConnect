@@ -5,6 +5,10 @@ import {
   Trend,
 } from '../analytics/analytics.types';
 import { ReasonCode, WellnessState } from '../decision-engine/decision.types';
+import {
+  LifestyleAdaptationHints,
+  LifestylePatternInsight,
+} from '../lifestyle-patterns/lifestyle-patterns.types';
 
 export interface AICandidate {
   featureId: string;
@@ -25,6 +29,12 @@ export interface WellnessAIContext {
   consistencyScore: number;
   candidates: AICandidate[];
   preferences: Array<{ featureId: string; preferenceScore: number }>;
+  lifestyle?: {
+    phase: string;
+    insights: LifestylePatternInsight[];
+    hints: LifestyleAdaptationHints;
+    journeyFocus: string[];
+  };
 }
 
 export interface AIRecommendation {

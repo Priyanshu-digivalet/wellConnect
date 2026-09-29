@@ -105,6 +105,16 @@ FIREBASE_PRIVATE_KEY=
 
 `FIREBASE_PRIVATE_KEY` can contain escaped `\n` newlines. The mobile app registers its token with `POST /api/v1/notifications/devices`. It never receives the Firebase private key.
 
+To fire a push without generating a recommendation (bypasses quiet hours and cooldown):
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/notifications/test-push \
+  -H 'Content-Type: application/json' \
+  -H 'x-wellness-user-id: wu_recovery_001' \
+  -H 'x-property-id: property_001' \
+  -d '{"title":"WellConnect test","body":"FCM delivery check","deviceId":"device-123"}'
+```
+
 The push payload is:
 
 ```json

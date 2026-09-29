@@ -56,6 +56,12 @@ export class HealthDataService {
           restingHeartRate: day.restingHeartRate ?? null,
           averageHeartRate: day.averageHeartRate ?? null,
           sleepMinutes: day.sleepMinutes ?? null,
+          ...(day.hourlySteps
+            ? { hourlySteps: day.hourlySteps as unknown as Prisma.InputJsonValue }
+            : {}),
+          ...(day.dayContext
+            ? { dayContext: day.dayContext as unknown as Prisma.InputJsonValue }
+            : {}),
           dataAvailability: day.dataAvailability as unknown as Prisma.InputJsonValue,
           dataQuality: quality,
         };

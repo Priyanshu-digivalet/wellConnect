@@ -1,4 +1,5 @@
 import { WellnessState } from '../decision-engine/decision.types';
+import { LifestyleAdaptationHints } from '../lifestyle-patterns/lifestyle-patterns.types';
 
 export interface CandidateFeature {
   featureId: string;
@@ -9,6 +10,7 @@ export interface CandidateFeature {
   enabled: boolean;
   available: boolean;
   deepLink: string;
+  tags: string[];
 }
 
 export interface RecommendationHistoryItem {
@@ -30,4 +32,5 @@ export interface ResolverInput {
   dismissedFeatureIds: string[];
   now: Date;
   cooldownHours: number;
+  lifestyleHints?: LifestyleAdaptationHints | null;
 }

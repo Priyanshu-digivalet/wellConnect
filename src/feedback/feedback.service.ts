@@ -1,8 +1,10 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { AuthUser } from '../auth/auth.types';
 import { DISMISSAL_WINDOW_DAYS } from '../common/wellness.constants';
 import { AppException } from '../common/exceptions/app.exception';
 import { PrismaService } from '../database/prisma.service';
+import { LifestylePatternsService } from '../lifestyle-patterns/lifestyle-patterns.service';
 import { SubmitFeedbackDto } from './dto/submit-feedback.dto';
 import { applyPreference } from './preference';
 
@@ -10,7 +12,10 @@ import { applyPreference } from './preference';
 export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly lifestyle: LifestylePatternsService,
+  ) {}
 
   async submit(user: AuthUser, dto: SubmitFeedbackDto, requestId: string) {
     const recommendation = await this.prisma.recommendation.findUnique({
@@ -31,6 +36,9 @@ export class FeedbackService {
         action: dto.action,
         rating: dto.rating ?? null,
         feedback: dto.feedback ?? null,
+        ...(dto.context
+          ? { context: dto.context as unknown as Prisma.InputJsonValue }
+          : {}),
       },
     });
 
@@ -75,6 +83,8 @@ export class FeedbackService {
     this.logger.log(
       `feedback_received wellnessUserId=${user.wellnessUserId} recommendationId=${dto.recommendationId} action=${dto.action} requestId=${requestId}`,
     );
+
+    await this.lifestyle.refresh(user.wellnessUserId);
 
     return {
       recommendationId: feedback.recommendationId,
