@@ -29,33 +29,21 @@ export class CandidateResolverService {
     );
     const dismissed = new Set(input.dismissedFeatureIds);
 
-    const eligible = input.features.filter((feature) => {
-      if (feature.propertyId !== input.propertyId) {
-        return false;
-      }
-      if (!feature.enabled || !feature.available) {
-        return false;
-      }
-      if (!allowedTypes.has(feature.featureType)) {
-        return false;
-      }
-      if (!feature.deepLink.startsWith('app://')) {
-        return false;
-      }
-      if (recentFeatureIds.has(feature.featureId)) {
-        return false;
-      }
-      if (dismissed.has(feature.featureId)) {
-        return false;
-      }
-      if ((preferences.get(feature.featureId) ?? 0) <= STRONG_NEGATIVE_PREFERENCE) {
-        return false;
-      }
-      return true;
-    });
+    const eligible = input.features.filter((feature) =>
+      this.isEligible(feature, input, allowedTypes, recentFeatureIds, dismissed, preferences),
+    );
+
+    // If cooldown exhausted all candidates, still recommend from the property catalog
+    // (important when health-data syncs frequently or metrics are sparse).
+    const pool =
+      eligible.length > 0
+        ? eligible
+        : input.features.filter((feature) =>
+            this.isEligible(feature, input, allowedTypes, new Set(), dismissed, preferences),
+          );
 
     const typeOrder: string[] = [...allowed];
-    return eligible
+    return pool
       .map((feature) => {
         const typeIndex = typeOrder.indexOf(feature.featureType);
         const typeScore =
@@ -69,6 +57,38 @@ export class CandidateResolverService {
           right.score - left.score || left.feature.name.localeCompare(right.feature.name),
       )
       .map((item) => item.feature);
+  }
+
+  private isEligible(
+    feature: CandidateFeature,
+    input: ResolverInput,
+    allowedTypes: Set<string>,
+    recentFeatureIds: Set<string>,
+    dismissed: Set<string>,
+    preferences: Map<string, number>,
+  ): boolean {
+    if (feature.propertyId !== input.propertyId) {
+      return false;
+    }
+    if (!feature.enabled || !feature.available) {
+      return false;
+    }
+    if (!allowedTypes.has(feature.featureType)) {
+      return false;
+    }
+    if (!feature.deepLink.startsWith('app://')) {
+      return false;
+    }
+    if (recentFeatureIds.has(feature.featureId)) {
+      return false;
+    }
+    if (dismissed.has(feature.featureId)) {
+      return false;
+    }
+    if ((preferences.get(feature.featureId) ?? 0) <= STRONG_NEGATIVE_PREFERENCE) {
+      return false;
+    }
+    return true;
   }
 
   private lifestyleBoost(

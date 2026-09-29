@@ -1,26 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
-export class TodayRecommendationQueryDto {
+/** Identity for wellness recommendation/profile routes when JWT auth is bypassed. */
+export class WellnessUserQueryDto {
   @ApiProperty({
     example: 'wu_2949cf41f9ef41db',
-    description: 'Dynamic wellness user id — recommendation is returned for this resident only',
+    description: 'Dynamic wellness user id — response is scoped to this resident only',
   })
   @IsString()
   @MinLength(1)
   @MaxLength(64)
   @Matches(/^[A-Za-z0-9_-]+$/)
   wellnessUserId!: string;
-
-  @ApiPropertyOptional({
-    example: '2026-09-29',
-    description:
-      'Calendar day (YYYY-MM-DD). Defaults to the current UTC date. Returns the latest ACTIVE recommendation created on that day.',
-  })
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  date?: string;
 
   @ApiPropertyOptional({
     example: 'property_001',

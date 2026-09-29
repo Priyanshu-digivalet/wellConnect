@@ -77,6 +77,8 @@ export interface PipelineResult {
 @Injectable()
 export class RecommendationsService {
   private readonly logger = new Logger(RecommendationsService.name);
+  /** Coalesce parallel health-data generates for the same user into one FCM. */
+  private readonly inFlightNotify = new Map<string, Promise<PipelineResult>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -169,7 +171,34 @@ export class RecommendationsService {
     return toRecommendationView(row, links);
   }
 
-  async generateForUser(wellnessUserId: string, requestId: string): Promise<PipelineResult> {
+  async generateForUser(
+    wellnessUserId: string,
+    requestId: string,
+    options?: { notifyEveryTime?: boolean },
+  ): Promise<PipelineResult> {
+    const notifyEveryTime = Boolean(options?.notifyEveryTime);
+    if (notifyEveryTime) {
+      const existingRun = this.inFlightNotify.get(wellnessUserId);
+      if (existingRun) {
+        this.logger.log(
+          `generate_coalesced wellnessUserId=${wellnessUserId} requestId=${requestId}`,
+        );
+        return existingRun;
+      }
+      const run = this.runGenerateForUser(wellnessUserId, requestId, true).finally(() => {
+        this.inFlightNotify.delete(wellnessUserId);
+      });
+      this.inFlightNotify.set(wellnessUserId, run);
+      return run;
+    }
+    return this.runGenerateForUser(wellnessUserId, requestId, false);
+  }
+
+  private async runGenerateForUser(
+    wellnessUserId: string,
+    requestId: string,
+    notifyEveryTime: boolean,
+  ): Promise<PipelineResult> {
     const user = await this.users.requireById(wellnessUserId);
     const rows = await this.prisma.dailyHealthData.findMany({
       where: { wellnessUserId },
@@ -196,37 +225,44 @@ export class RecommendationsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    if (existing && (await this.canReuse(existing, user.propertyId, dismissedFeatureIds))) {
+    if (
+      !notifyEveryTime &&
+      existing &&
+      existing.reasonCode !== 'INSUFFICIENT_DATA' &&
+      (await this.canReuse(existing, user.propertyId, dismissedFeatureIds))
+    ) {
       const notification = await this.prisma.notification.findFirst({
         where: { recommendationId: existing.recommendationId },
         orderBy: { createdAt: 'desc' },
       });
-      const links = await this.featureLinks(user.propertyId);
-      return {
-        profile,
-        recommendation: toRecommendationView(existing, links),
-        notification: notification
-          ? {
-              notificationId: notification.notificationId,
-              recommendationId: notification.recommendationId,
-              type: notification.type,
-              title: notification.title,
-              body: notification.body,
-              deepLink: notification.deepLink,
-              featureId: notification.featureId,
-              status: notification.status,
-              priority: notification.priority,
-              scheduledAt: notification.scheduledAt?.toISOString() ?? null,
-              sentAt: notification.sentAt?.toISOString() ?? null,
-              openedAt: notification.openedAt?.toISOString() ?? null,
-              actionedAt: notification.actionedAt?.toISOString() ?? null,
-            }
-          : null,
-        lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
-        wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
-        warnings: [],
-        reused: true,
-      };
+      // Reuse only when a notification already exists. Otherwise regenerate so
+      // eligible recommendations (including general wellbeing) can create a push.
+      if (notification) {
+        const links = await this.featureLinks(user.propertyId);
+        return {
+          profile,
+          recommendation: toRecommendationView(existing, links),
+          notification: {
+            notificationId: notification.notificationId,
+            recommendationId: notification.recommendationId,
+            type: notification.type,
+            title: notification.title,
+            body: notification.body,
+            deepLink: notification.deepLink,
+            featureId: notification.featureId,
+            status: notification.status,
+            priority: notification.priority,
+            scheduledAt: notification.scheduledAt?.toISOString() ?? null,
+            sentAt: notification.sentAt?.toISOString() ?? null,
+            openedAt: notification.openedAt?.toISOString() ?? null,
+            actionedAt: notification.actionedAt?.toISOString() ?? null,
+          },
+          lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
+          wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
+          warnings: [],
+          reused: true,
+        };
+      }
     }
     if (existing) {
       await this.prisma.recommendation.update({
@@ -235,24 +271,9 @@ export class RecommendationsService {
       });
     }
 
-    if (decision.state === 'INSUFFICIENT_DATA') {
-      return this.storeDeterministic(user, profile, decision, analytics, requestId, lifestyleBundle, {
-        type: 'DAILY_WELLNESS',
-        category: 'GENERAL',
-        featureId: null,
-        featureName: null,
-        deepLink: null,
-        title: 'A few more days will help',
-        message:
-          'There is not enough recent activity and sleep data yet to suggest a property facility. Keep the wellness sync running and suggestions will become specific once a clearer pattern is available.',
-        confidence: analytics.dataQuality.confidence,
-        generatedBy: 'decision-engine',
-        eligible: false,
-        priority: 'LOW',
-        hasFeature: false,
-        featureAvailable: false,
-      });
-    }
+    // Always resolve from PropertyFeature catalog — including sparse/missing health metrics.
+    // (INSUFFICIENT_DATA no longer short-circuits to a feature-less static message when
+    // the property has recommendable facilities/outlets/services.)
 
     const features = await this.prisma.propertyFeature.findMany({
       where: { propertyId: user.propertyId },
@@ -383,6 +404,7 @@ export class RecommendationsService {
         hasFeature: false,
         featureAvailable: false,
         candidateFeatureIds: [],
+        forceNotify: notifyEveryTime,
       });
     }
 
@@ -426,6 +448,7 @@ export class RecommendationsService {
       hasFeature: true,
       featureAvailable: feature.enabled && feature.available,
       candidateFeatureIds: resolved.map((item) => item.featureId),
+      forceNotify: notifyEveryTime,
     });
   }
 
@@ -454,6 +477,7 @@ export class RecommendationsService {
       hasFeature: boolean;
       featureAvailable: boolean;
       candidateFeatureIds?: string[];
+      forceNotify?: boolean;
     },
   ): Promise<PipelineResult> {
     const ttlHours = this.config.get<number>('recommendationTtlHours') ?? 24;
@@ -492,25 +516,24 @@ export class RecommendationsService {
       },
     });
 
-    const planned = await this.notifications.createForRecommendation({
-      wellnessUserId: user.wellnessUserId,
-      recommendationId: recommendation.recommendationId,
-      title: draft.title,
-      body: draft.message,
-      type: draft.hasFeature ? 'WELLNESS_RECOMMENDATION' : 'DAILY_WELLNESS',
-      priority: draft.priority,
-      eligible: draft.eligible,
-      expiresAt,
-      featureId: draft.featureId,
-      deepLink: draft.deepLink,
-      featureAvailable: draft.featureAvailable,
-      hasFeature: draft.hasFeature,
-      timezone: user.timezone,
-      requestId,
-    });
-
     this.logger.log(
       `recommendation_generated recommendationId=${recommendation.recommendationId} featureId=${draft.featureId ?? 'none'} state=${decision.state} provider=${draft.generatedBy} requestId=${requestId}`,
+    );
+
+    // Notify only after the recommendation row is persisted and ACTIVE (ready to send).
+    const planned = await this.notifications.enqueueAndSendForRecommendation(
+      recommendation.recommendationId,
+      {
+        requestId,
+        timezone: user.timezone,
+        forceNotify: draft.forceNotify,
+        eligible: draft.forceNotify ? true : draft.eligible,
+        priority: draft.forceNotify ? 'HIGH' : draft.priority,
+        deepLink: draft.deepLink,
+        hasFeature: draft.hasFeature,
+        featureAvailable: draft.featureAvailable,
+        type: draft.hasFeature ? 'WELLNESS_RECOMMENDATION' : 'DAILY_WELLNESS',
+      },
     );
 
     const links = await this.featureLinks(user.propertyId);
@@ -521,7 +544,7 @@ export class RecommendationsService {
       lifestyleSummary: lifestyleBundle?.lifestyleSummary ?? null,
       wellnessJourney: lifestyleBundle?.wellnessJourney ?? null,
       warnings:
-        draft.eligible && planned.skippedReason
+        (draft.forceNotify || draft.eligible) && planned.skippedReason
           ? [{ code: planned.skippedReason, message: 'Notification was not created' }]
           : [],
       reused: false,

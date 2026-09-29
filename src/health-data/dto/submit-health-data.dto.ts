@@ -14,6 +14,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
   Validate,
   ValidateNested,
   ValidatorConstraint,
@@ -172,6 +173,33 @@ export class UserContextDto {
   @IsString()
   @MaxLength(64)
   timezone!: string;
+
+  @ApiPropertyOptional({
+    example: 'android-phone-1',
+    description:
+      'Optional. When sent with fcmToken, upserts NotificationDevice on this health-data call.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  deviceId?: string;
+
+  @ApiPropertyOptional({
+    example: 'fcm-token-from-firebase-sdk',
+    description:
+      'Optional. When sent with deviceId, upserts NotificationDevice on this health-data call.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4096)
+  fcmToken?: string;
+
+  @ApiPropertyOptional({ example: true, default: true })
+  @IsOptional()
+  @IsBoolean()
+  notificationsEnabled?: boolean;
 }
 
 export class DataContextDto {

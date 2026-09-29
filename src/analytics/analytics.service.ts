@@ -4,9 +4,6 @@ import {
   ACTIVITY_HIGH_STEPS,
   ACTIVITY_MODERATE_STEPS,
   AVAILABILITY_FIELDS,
-  MIN_COMPLETENESS,
-  MIN_DAYS_FOR_ANALYSIS,
-  MIN_SAMPLES_FOR_LEVEL,
   SLEEP_HIGH_MINUTES,
   SLEEP_MODERATE_MINUTES,
   TREND_CHANGE_THRESHOLD,
@@ -41,29 +38,29 @@ export class AnalyticsService {
     const avgSteps = stepSamples.length ? average(stepSamples) : 0;
     const avgSleep = sleepSamples.length ? average(sleepSamples) : 0;
     const avgHeart = heartSamples.length ? average(heartSamples) : null;
+    // Classify from whatever samples exist — a single metric (e.g. steps-only) is enough.
     const activityLevel = classifyActivity(avgSteps, stepSamples.length);
     const sleepLevel = classifySleep(avgSleep, sleepSamples.length);
     const completeness = completenessScore(window);
     const coverage = Math.min(window.length, 7) / 7;
     const latest = window[window.length - 1];
-    const insufficientData =
-      window.length < MIN_DAYS_FOR_ANALYSIS ||
-      completeness < MIN_COMPLETENESS ||
-      stepSamples.length < MIN_SAMPLES_FOR_LEVEL ||
-      sleepSamples.length < MIN_SAMPLES_FOR_LEVEL;
+    const hasAnyMetric =
+      stepSamples.length > 0 || sleepSamples.length > 0 || heartSamples.length > 0;
+    // Insufficient only when there is no usable metric at all.
+    const insufficientData = window.length === 0 || !hasAnyMetric;
 
     return {
       activity: {
         level: activityLevel,
         trend: trend(stepSamples),
         avgSteps7d: roundTo(avgSteps, 0),
-        todaySteps: latest && latest.dataAvailability.steps ? latest.steps : null,
+        todaySteps: latest && latest.dataAvailability.steps ? latest.steps ?? 0 : null,
       },
       sleep: {
         level: sleepLevel,
         trend: trend(sleepSamples),
         avgMinutes7d: roundTo(avgSleep, 0),
-        todayMinutes: latest && latest.dataAvailability.sleep ? latest.sleepMinutes : null,
+        todayMinutes: latest && latest.dataAvailability.sleep ? latest.sleepMinutes ?? 0 : null,
       },
       recovery: {
         level: recoveryLevel(activityLevel, sleepLevel, avgHeart),
@@ -92,16 +89,18 @@ function values(
 ): number[] {
   const samples: number[] = [];
   for (const day of days) {
-    const value = read(day);
-    if (available(day) && value != null) {
-      samples.push(value);
+    if (!available(day)) {
+      continue;
     }
+    // Null/missing numeric values are treated as zero for analysis.
+    samples.push(read(day) ?? 0);
   }
   return samples;
 }
 
 export function classifyActivity(avgSteps: number, samples: number): ActivityLevel {
-  if (samples < MIN_SAMPLES_FOR_LEVEL) {
+  // A single sample is enough to classify — steps-only streams are valid.
+  if (samples < 1) {
     return 'UNKNOWN';
   }
   if (avgSteps >= ACTIVITY_HIGH_STEPS) {
@@ -114,7 +113,7 @@ export function classifyActivity(avgSteps: number, samples: number): ActivityLev
 }
 
 export function classifySleep(avgMinutes: number, samples: number): SleepLevel {
-  if (samples < MIN_SAMPLES_FOR_LEVEL) {
+  if (samples < 1) {
     return 'UNKNOWN';
   }
   if (avgMinutes >= SLEEP_HIGH_MINUTES) {
@@ -179,25 +178,18 @@ function completenessScore(days: DailyMetric[]): number {
 }
 
 function valuePresent(
-  day: DailyMetric,
+  _day: DailyMetric,
   field: (typeof AVAILABILITY_FIELDS)[number],
 ): boolean {
-  switch (field) {
-    case 'steps':
-      return day.steps != null;
-    case 'distance':
-      return day.distanceMeters != null;
-    case 'activeCalories':
-      return day.activeCalories != null;
-    case 'restingHeartRate':
-      return day.restingHeartRate != null;
-    case 'averageHeartRate':
-      return day.averageHeartRate != null;
-    case 'sleep':
-      return day.sleepMinutes != null;
-    default:
-      return false;
-  }
+  // Null metric values are treated as zero, so availability alone is enough.
+  return (
+    field === 'steps' ||
+    field === 'distance' ||
+    field === 'activeCalories' ||
+    field === 'restingHeartRate' ||
+    field === 'averageHeartRate' ||
+    field === 'sleep'
+  );
 }
 
 function recoveryLevel(

@@ -18,16 +18,111 @@ async function main(): Promise<void> {
     },
   });
 
+  // Catalog types: FACILITY / SERVICE / OUTLET (plus legacy GYM/POOL/SPA/RESTAURANT aliases kept
+  // via dual rows only where needed — primary rows use the mobile catalog shape).
   const features = [
-    feature('facility_gym', 'GYM', 'Gym', 'FITNESS', 'app://facility/gym', ['fitness', 'activity'], null, null),
-    feature('facility_pool', 'POOL', 'Swimming Pool', 'FITNESS', 'app://facility/pool', ['fitness', 'recovery'], null, null),
-    feature('service_spa', 'SPA', 'Spa', 'WELLNESS', 'app://service/spa', ['recovery', 'relaxation'], 'spa', null),
-    feature('outlet_restaurant', 'RESTAURANT', 'Restaurant', 'DINING', 'app://outlet/restaurant', ['dining'], null, 'restaurant'),
+    feature({
+      featureId: 'facility_gym',
+      featureType: 'FACILITY',
+      name: 'Gym',
+      category: 'FITNESS',
+      deepLink: 'app://facility/gym',
+      tags: ['fitness', 'exercise', 'wellness', 'gym', 'activity'],
+    }),
+    feature({
+      featureId: 'facility_pool',
+      featureType: 'FACILITY',
+      name: 'Swimming Pool',
+      category: 'WELLNESS',
+      deepLink: 'app://facility/pool',
+      tags: ['swimming', 'fitness', 'relaxation', 'recovery', 'pool'],
+    }),
+    feature({
+      featureId: 'facility_yoga',
+      featureType: 'FACILITY',
+      name: 'Yoga Studio',
+      category: 'WELLNESS',
+      deepLink: 'app://facility/yoga',
+      tags: ['yoga', 'gentle', 'stretch', 'wellness', 'relaxation'],
+    }),
+    feature({
+      featureId: 'facility_tennis',
+      featureType: 'FACILITY',
+      name: 'Tennis Court',
+      category: 'FITNESS',
+      deepLink: 'app://facility/tennis',
+      tags: ['fitness', 'activity', 'sports'],
+    }),
+    feature({
+      featureId: 'service_spa',
+      featureType: 'SERVICE',
+      name: 'Spa',
+      category: 'WELLNESS',
+      deepLink: 'app://service/spa',
+      tags: ['relaxation', 'wellness', 'recovery', 'spa'],
+      serviceId: 'service_spa_001',
+    }),
+    feature({
+      featureId: 'service_massage',
+      featureType: 'SERVICE',
+      name: 'Massage Therapy',
+      category: 'WELLNESS',
+      deepLink: 'app://service/massage',
+      tags: ['relaxation', 'recovery', 'wellness', 'gentle'],
+      serviceId: 'service_massage_001',
+    }),
+    feature({
+      featureId: 'outlet_restaurant',
+      featureType: 'OUTLET',
+      name: 'Restaurant',
+      category: 'DINING',
+      deepLink: 'app://outlet/restaurant',
+      tags: ['dining', 'food'],
+      outletId: 'outlet_001',
+    }),
+    feature({
+      featureId: 'outlet_cafe',
+      featureType: 'OUTLET',
+      name: 'Cafe',
+      category: 'DINING',
+      deepLink: 'app://outlet/cafe',
+      tags: ['dining', 'food', 'coffee'],
+      outletId: 'outlet_cafe_001',
+    }),
+    feature({
+      featureId: 'outlet_bar',
+      featureType: 'OUTLET',
+      name: 'Lounge Bar',
+      category: 'DINING',
+      deepLink: 'app://outlet/bar',
+      tags: ['dining', 'social'],
+      outletId: 'outlet_bar_001',
+    }),
+    feature({
+      featureId: 'outlet_bakery',
+      featureType: 'OUTLET',
+      name: 'Bakery',
+      category: 'DINING',
+      deepLink: 'app://outlet/bakery',
+      tags: ['dining', 'food'],
+      outletId: 'outlet_bakery_001',
+    }),
+    feature({
+      featureId: 'outlet_healthy_kitchen',
+      featureType: 'OUTLET',
+      name: 'Healthy Kitchen',
+      category: 'DINING',
+      deepLink: 'app://outlet/healthy-kitchen',
+      tags: ['dining', 'food', 'wellness'],
+      outletId: 'outlet_healthy_001',
+    }),
   ];
 
   for (const item of features) {
     await prisma.propertyFeature.upsert({
-      where: { propertyId_featureId: { propertyId: property.propertyId, featureId: item.featureId } },
+      where: {
+        propertyId_featureId: { propertyId: property.propertyId, featureId: item.featureId },
+      },
       update: item,
       create: { propertyId: property.propertyId, ...item },
     });
@@ -52,30 +147,32 @@ async function main(): Promise<void> {
     heart: [58, 59, 57, 60, 58, 59, 57],
   });
 
-  console.log('Seeded property_001 with gym, pool, spa, restaurant, and 3 synthetic residents.');
+  console.log(
+    `Seeded ${property.propertyId} with ${features.length} property features and 3 synthetic residents.`,
+  );
 }
 
-function feature(
-  featureId: string,
-  featureType: string,
-  name: string,
-  category: string,
-  deepLink: string,
-  tags: string[],
-  serviceId: string | null,
-  outletId: string | null,
-) {
+function feature(input: {
+  featureId: string;
+  featureType: string;
+  name: string;
+  category: string;
+  deepLink: string;
+  tags: string[];
+  serviceId?: string | null;
+  outletId?: string | null;
+}) {
   return {
-    featureId,
-    featureType,
-    name,
-    category,
-    serviceId,
-    outletId,
+    featureId: input.featureId,
+    featureType: input.featureType,
+    name: input.name,
+    category: input.category,
+    serviceId: input.serviceId ?? null,
+    outletId: input.outletId ?? null,
     enabled: true,
     available: true,
-    deepLink,
-    tags,
+    deepLink: input.deepLink,
+    tags: input.tags,
   };
 }
 
@@ -148,21 +245,22 @@ async function seedResident(input: {
       restingHeartRate,
       averageHeartRate: restingHeartRate + 14,
       sleepMinutes,
-      dataAvailability: availability as Prisma.InputJsonValue,
+      dataAvailability: availability as unknown as Prisma.InputJsonValue,
       dataQuality: 1,
     };
     await prisma.dailyHealthData.upsert({
-      where: { wellnessUserId_date: { wellnessUserId: input.wellnessUserId, date } },
-      update: data,
+      where: {
+        wellnessUserId_date: { wellnessUserId: input.wellnessUserId, date },
+      },
       create: { wellnessUserId: input.wellnessUserId, date, ...data },
+      update: data,
     });
   }
 }
 
 main()
-  .catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : 'seed_failed';
-    console.error(message);
+  .catch((error) => {
+    console.error(error);
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -45,16 +45,39 @@ describe('AnalyticsService', () => {
     expect(analytics.calculate(series([5000, 5000, 5000, 5000, 5000, 5000, 5000], 340)).sleep.level).toBe('LOW');
   });
 
-  it('marks insufficient data when fewer than three complete days are present', () => {
+  it('treats steps-only data as sufficient', () => {
     const result = analytics.calculate([
-      day('2026-09-28', 9000, 400),
-      day('2026-09-29', 9000, 400),
+      stepsOnly('2026-09-23', 2500),
+      stepsOnly('2026-09-24', 3000),
+      stepsOnly('2026-09-25', 2800),
+      stepsOnly('2026-09-26', 3200),
+      stepsOnly('2026-09-27', 2900),
+      stepsOnly('2026-09-28', 3100),
+      stepsOnly('2026-09-29', 2251),
+    ]);
+
+    expect(result.insufficientData).toBe(false);
+    expect(result.activity.level).toBe('LOW');
+    expect(result.sleep.level).toBe('UNKNOWN');
+  });
+
+  it('marks insufficient data only when no usable metrics exist', () => {
+    const result = analytics.calculate([
+      {
+        date: '2026-09-29',
+        steps: 0,
+        distanceMeters: 0,
+        activeCalories: 0,
+        restingHeartRate: null,
+        averageHeartRate: null,
+        sleepMinutes: null,
+        dataAvailability: emptyAvailability(false),
+      },
     ]);
 
     expect(result.insufficientData).toBe(true);
     expect(result.activity.level).toBe('UNKNOWN');
     expect(result.sleep.level).toBe('UNKNOWN');
-    expect(result.dataQuality.confidence).toBeLessThan(0.5);
   });
 });
 
@@ -72,5 +95,25 @@ function day(date: string, steps: number, sleep: number): DailyMetric {
     averageHeartRate: 76,
     sleepMinutes: sleep,
     dataAvailability: emptyAvailability(true),
+  };
+}
+
+function stepsOnly(date: string, steps: number): DailyMetric {
+  return {
+    date,
+    steps,
+    distanceMeters: 0,
+    activeCalories: 0,
+    restingHeartRate: null,
+    averageHeartRate: null,
+    sleepMinutes: null,
+    dataAvailability: {
+      steps: true,
+      distance: false,
+      activeCalories: false,
+      restingHeartRate: false,
+      averageHeartRate: false,
+      sleep: false,
+    },
   };
 }

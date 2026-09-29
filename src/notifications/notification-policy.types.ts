@@ -15,6 +15,8 @@ export interface PolicyInput {
   cooldownHours: number;
   priority: NotificationPriority;
   eligible: boolean;
+  /** When true (health-data ingest), send immediately and ignore cooldown/quiet-hours deferral. */
+  forceNotify?: boolean;
 }
 
 export interface PolicyDecision {

@@ -60,9 +60,7 @@ export function validateHealthSubmission(dto: SubmitHealthDataDto): FieldError[]
         message: 'date is outside dataFrom and dataTo',
       });
     }
-    requireWhenAvailable(errors, index, 'restingHeartRate', day.dataAvailability.restingHeartRate, day.restingHeartRate);
-    requireWhenAvailable(errors, index, 'averageHeartRate', day.dataAvailability.averageHeartRate, day.averageHeartRate);
-    requireWhenAvailable(errors, index, 'sleepMinutes', day.dataAvailability.sleep, day.sleepMinutes);
+    // Optional metrics (sleep/HR) may be null — ingest stores them as 0.
   });
 
   const hasAnyAvailableMetric = dailyHealthData.some((day) =>
@@ -77,19 +75,4 @@ export function validateHealthSubmission(dto: SubmitHealthDataDto): FieldError[]
   }
 
   return errors;
-}
-
-function requireWhenAvailable(
-  errors: FieldError[],
-  index: number,
-  field: string,
-  available: boolean,
-  value: number | null | undefined,
-): void {
-  if (available && (value === null || value === undefined)) {
-    errors.push({
-      field: `dailyHealthData[${index}].${field}`,
-      message: `${field} is marked available but no value was provided`,
-    });
-  }
 }

@@ -23,10 +23,13 @@ export class NotificationPolicyService {
     if (input.hasFeature && !input.featureAvailable) {
       return skip('FEATURE_UNAVAILABLE');
     }
-    if (input.lastNotificationAt) {
+
+    const forceNotify = Boolean(input.forceNotify) || input.priority === 'HIGH';
+
+    if (!forceNotify && input.lastNotificationAt) {
       const elapsed = input.now.getTime() - input.lastNotificationAt.getTime();
       const cooldownMs = input.cooldownHours * 60 * 60 * 1000;
-      if (elapsed < cooldownMs && input.priority !== 'HIGH') {
+      if (elapsed < cooldownMs) {
         return skip('NOTIFICATION_COOLDOWN');
       }
     }
@@ -37,7 +40,7 @@ export class NotificationPolicyService {
       input.quietStartHour,
       input.quietEndHour,
     );
-    if (inQuietHours && input.priority !== 'HIGH') {
+    if (inQuietHours && !forceNotify) {
       return {
         allow: true,
         action: 'SCHEDULE',
@@ -50,7 +53,7 @@ export class NotificationPolicyService {
       allow: true,
       action: 'SEND',
       scheduledAt: input.now,
-      reason: 'ALLOWED',
+      reason: forceNotify ? 'FORCE_NOTIFY' : 'ALLOWED',
     };
   }
 }

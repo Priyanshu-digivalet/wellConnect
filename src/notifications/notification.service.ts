@@ -9,6 +9,7 @@ import { DatabaseNotificationQueue } from './database-notification.queue';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { SendTestPushDto } from './dto/send-test-push.dto';
 import { FcmService } from './fcm.service';
+import { isLikelyValidFcmToken } from './fcm-token';
 import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationPriority } from './notification-policy.types';
 
@@ -43,6 +44,8 @@ export interface CreateNotificationInput {
   hasFeature: boolean;
   timezone: string;
   requestId: string;
+  /** Health-data ingest: one immediate FCM per call (bypass cooldown / quiet deferral). */
+  forceNotify?: boolean;
 }
 
 @Injectable()
@@ -59,33 +62,84 @@ export class NotificationService {
   ) {}
 
   async registerDevice(user: AuthUser, dto: RegisterDeviceDto) {
+    // Prefer body wellnessUserId so /notifications/devices binds to the
+    // dynamic resident id, not the auth-bypass default (wu_recovery_001).
+    const wellnessUserId = dto.wellnessUserId || user.wellnessUserId;
+    const propertyId = dto.propertyId || user.propertyId;
+    if (!wellnessUserId || !propertyId) {
+      throw new AppException(
+        'INVALID_DEVICE_REGISTRATION',
+        'wellnessUserId and propertyId are required to register a device',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const now = new Date();
+    await this.prisma.wellnessUser.upsert({
+      where: { wellnessUserId },
+      create: {
+        wellnessUserId,
+        propertyId,
+        timezone: dto.timezone ?? 'Asia/Kolkata',
+        platform: dto.platform,
+        appVersion: dto.appVersion,
+      },
+      update: {
+        propertyId,
+        platform: dto.platform,
+        appVersion: dto.appVersion,
+        ...(dto.timezone ? { timezone: dto.timezone } : {}),
+      },
+    });
+
+    const existing = await this.prisma.notificationDevice.findUnique({
+      where: {
+        wellnessUserId_deviceId: {
+          wellnessUserId,
+          deviceId: dto.deviceId,
+        },
+      },
+    });
+
+    const incomingToken = dto.fcmToken?.trim() ?? '';
+    const incomingValid = isLikelyValidFcmToken(incomingToken);
+    const existingValid = isLikelyValidFcmToken(existing?.fcmToken);
+    // Never overwrite a real FCM token with a mock/short placeholder from health-data sync.
+    const fcmToken =
+      !incomingValid && existingValid ? (existing?.fcmToken as string) : incomingToken;
+
+    if (!incomingValid) {
+      this.logger.warn(
+        `device_fcm_token_invalid wellnessUserId=${wellnessUserId} deviceId=${dto.deviceId} tokenLen=${incomingToken.length} keptExisting=${!incomingValid && existingValid}`,
+      );
+    }
+
     const device = await this.prisma.notificationDevice.upsert({
       where: {
         wellnessUserId_deviceId: {
-          wellnessUserId: user.wellnessUserId,
+          wellnessUserId,
           deviceId: dto.deviceId,
         },
       },
       create: {
-        wellnessUserId: user.wellnessUserId,
+        wellnessUserId,
         deviceId: dto.deviceId,
         platform: dto.platform,
-        fcmToken: dto.fcmToken,
+        fcmToken,
         appVersion: dto.appVersion,
         notificationsEnabled: dto.notificationsEnabled ?? true,
         lastSeenAt: now,
       },
       update: {
         platform: dto.platform,
-        fcmToken: dto.fcmToken,
+        fcmToken,
         appVersion: dto.appVersion,
         notificationsEnabled: dto.notificationsEnabled ?? true,
         lastSeenAt: now,
       },
     });
     this.logger.log(
-      `device_registered wellnessUserId=${user.wellnessUserId} deviceId=${dto.deviceId} platform=${dto.platform}`,
+      `device_registered wellnessUserId=${wellnessUserId} deviceId=${dto.deviceId} platform=${dto.platform} tokenValid=${isLikelyValidFcmToken(device.fcmToken)}`,
     );
     return toDeviceView(device);
   }
@@ -215,8 +269,27 @@ export class NotificationService {
     input: CreateNotificationInput,
   ): Promise<{ notification: NotificationView | null; skippedReason: string | null }> {
     const now = new Date();
+
+    // Only notify after the recommendation exists and is ready to send.
+    const recommendation = await this.prisma.recommendation.findUnique({
+      where: { recommendationId: input.recommendationId },
+    });
+    if (!recommendation || recommendation.status !== 'ACTIVE') {
+      this.logger.log(
+        `notification_skipped recommendationId=${input.recommendationId} reason=RECOMMENDATION_NOT_READY requestId=${input.requestId}`,
+      );
+      return { notification: null, skippedReason: 'RECOMMENDATION_NOT_READY' };
+    }
+    if (recommendation.expiresAt.getTime() <= now.getTime()) {
+      this.logger.log(
+        `notification_skipped recommendationId=${input.recommendationId} reason=RECOMMENDATION_EXPIRED requestId=${input.requestId}`,
+      );
+      return { notification: null, skippedReason: 'RECOMMENDATION_EXPIRED' };
+    }
+
     const devices = await this.prisma.notificationDevice.findMany({
       where: { wellnessUserId: input.wellnessUserId },
+      orderBy: { lastSeenAt: 'desc' },
     });
     const enabledDevices = devices.filter((device) => device.notificationsEnabled);
     const duplicate = await this.prisma.notification.findFirst({
@@ -240,7 +313,7 @@ export class NotificationService {
       quietEndHour: this.config.get<number>('quietHoursEnd') ?? 7,
       notificationsEnabled: enabledDevices.length > 0,
       hasDevice: devices.length > 0,
-      recommendationExpiresAt: input.expiresAt,
+      recommendationExpiresAt: recommendation.expiresAt,
       featureAvailable: input.featureAvailable,
       hasFeature: input.hasFeature,
       duplicateNotification: duplicate != null,
@@ -248,6 +321,7 @@ export class NotificationService {
       cooldownHours: this.config.get<number>('notificationCooldownHours') ?? 4,
       priority: input.priority,
       eligible: input.eligible,
+      forceNotify: input.forceNotify,
     });
 
     if (!decision.allow || !decision.scheduledAt) {
@@ -257,17 +331,18 @@ export class NotificationService {
       return { notification: null, skippedReason: decision.reason };
     }
 
+    // Copy comes from the ready recommendation record (source of truth).
     const status = decision.action === 'SCHEDULE' ? 'SCHEDULED' : 'CREATED';
     const created = await this.prisma.notification.create({
       data: {
         notificationId: createPublicId('ntf'),
-        recommendationId: input.recommendationId,
-        wellnessUserId: input.wellnessUserId,
+        recommendationId: recommendation.recommendationId,
+        wellnessUserId: recommendation.wellnessUserId,
         type: input.type,
-        title: input.title,
-        body: input.body,
-        deepLink: input.deepLink,
-        featureId: input.featureId,
+        title: recommendation.title,
+        body: recommendation.message,
+        deepLink: input.deepLink ?? null,
+        featureId: recommendation.featureId,
         status,
         priority: input.priority,
         scheduledAt: decision.scheduledAt,
@@ -276,9 +351,80 @@ export class NotificationService {
     });
     await this.queue.enqueue(created.notificationId);
     this.logger.log(
-      `notification_generated notificationId=${created.notificationId} status=${status} requestId=${input.requestId}`,
+      `notification_enqueued notificationId=${created.notificationId} recommendationId=${recommendation.recommendationId} status=${status} action=${decision.action} requestId=${input.requestId}`,
     );
-    return { notification: toNotificationView(created), skippedReason: null };
+
+    // Send via FCM only after enqueue, and only when policy says SEND now.
+    let latest = created;
+    if (decision.action === 'SEND') {
+      const full = await this.prisma.notification.findUnique({
+        where: { id: created.id },
+        include: { recommendation: true, user: true },
+      });
+      if (full) {
+        await this.dispatchOne(full, now);
+        latest = await this.prisma.notification.findUniqueOrThrow({
+          where: { id: created.id },
+        });
+        this.logger.log(
+          `notification_fcm_sent notificationId=${latest.notificationId} status=${latest.status} recommendationId=${recommendation.recommendationId} requestId=${input.requestId}`,
+        );
+      }
+    }
+
+    return { notification: toNotificationView(latest), skippedReason: null };
+  }
+
+  /**
+   * Enqueue + send notification strictly from an ACTIVE recommendation that is ready.
+   */
+  async enqueueAndSendForRecommendation(
+    recommendationId: string,
+    options: {
+      requestId: string;
+      timezone: string;
+      forceNotify?: boolean;
+      eligible?: boolean;
+      priority?: NotificationPriority;
+      deepLink?: string | null;
+      hasFeature?: boolean;
+      featureAvailable?: boolean;
+      type?: string;
+    },
+  ): Promise<{ notification: NotificationView | null; skippedReason: string | null }> {
+    const recommendation = await this.prisma.recommendation.findUnique({
+      where: { recommendationId },
+    });
+    if (!recommendation || recommendation.status !== 'ACTIVE') {
+      this.logger.log(
+        `notification_skipped recommendationId=${recommendationId} reason=RECOMMENDATION_NOT_READY requestId=${options.requestId}`,
+      );
+      return { notification: null, skippedReason: 'RECOMMENDATION_NOT_READY' };
+    }
+
+    this.logger.log(
+      `recommendation_ready_for_notify recommendationId=${recommendationId} title=${recommendation.title} requestId=${options.requestId}`,
+    );
+
+    return this.createForRecommendation({
+      wellnessUserId: recommendation.wellnessUserId,
+      recommendationId: recommendation.recommendationId,
+      title: recommendation.title,
+      body: recommendation.message,
+      type:
+        options.type ??
+        (recommendation.featureId ? 'WELLNESS_RECOMMENDATION' : 'DAILY_WELLNESS'),
+      priority: options.forceNotify ? 'HIGH' : (options.priority ?? 'NORMAL'),
+      eligible: options.forceNotify ? true : (options.eligible ?? true),
+      expiresAt: recommendation.expiresAt,
+      featureId: recommendation.featureId,
+      deepLink: options.deepLink ?? null,
+      featureAvailable: options.featureAvailable ?? true,
+      hasFeature: options.hasFeature ?? Boolean(recommendation.featureId),
+      timezone: options.timezone,
+      requestId: options.requestId,
+      forceNotify: options.forceNotify,
+    });
   }
 
   async markOpened(user: AuthUser, notificationId: string): Promise<NotificationView> {
@@ -360,13 +506,16 @@ export class NotificationService {
       }
     }
 
+    // Prefer the freshest enabled token (avoid stale duplicate device rows).
     const devices = await this.prisma.notificationDevice.findMany({
       where: {
         wellnessUserId: notification.wellnessUserId,
         notificationsEnabled: true,
       },
+      orderBy: { lastSeenAt: 'desc' },
     });
-    if (devices.length === 0) {
+    const devicesToSend = devices.slice(0, 1);
+    if (devicesToSend.length === 0) {
       await this.fail(notification.notificationId, notification.id, 'NO_DEVICE');
       return;
     }
@@ -381,7 +530,7 @@ export class NotificationService {
     let providerMessageId: string | undefined;
     let success = false;
     let lastError = 'FCM_SEND_FAILED';
-    for (const device of devices) {
+    for (const device of devicesToSend) {
       const result = await this.fcm.send(device.fcmToken, {
         title: notification.title,
         body: notification.body,
@@ -400,7 +549,9 @@ export class NotificationService {
     }
 
     if (!success) {
-      await this.fail(notification.notificationId, notification.id, lastError);
+      await this.fail(notification.notificationId, notification.id, lastError, {
+        soft: lastError === 'INVALID_FCM_TOKEN',
+      });
       return;
     }
 
@@ -417,12 +568,22 @@ export class NotificationService {
     });
   }
 
-  private async fail(notificationId: string, id: string, reason: string): Promise<void> {
+  private async fail(
+    notificationId: string,
+    id: string,
+    reason: string,
+    options?: { soft?: boolean },
+  ): Promise<void> {
     await this.prisma.notification.update({
       where: { id },
       data: { status: 'FAILED', failureReason: reason },
     });
-    this.logger.error(`fcm_failure notificationId=${notificationId} code=${reason}`);
+    const line = `fcm_failure notificationId=${notificationId} code=${reason}`;
+    if (options?.soft) {
+      this.logger.warn(line);
+    } else {
+      this.logger.error(line);
+    }
   }
 
   private async requireOwned(user: AuthUser, notificationId: string): Promise<Notification> {
@@ -442,6 +603,7 @@ export class NotificationService {
 
 function toDeviceView(device: NotificationDevice) {
   return {
+    wellnessUserId: device.wellnessUserId,
     deviceId: device.deviceId,
     platform: device.platform,
     appVersion: device.appVersion,

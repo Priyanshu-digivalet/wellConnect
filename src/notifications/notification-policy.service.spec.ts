@@ -27,6 +27,16 @@ describe('NotificationPolicyService', () => {
     const decision = policy.evaluate(base({ now: new Date('2026-09-29T06:30:00.000Z') }));
     expect(decision).toMatchObject({ allow: true, action: 'SEND', reason: 'ALLOWED' });
   });
+  it('forceNotify bypasses cooldown and sends immediately', () => {
+    const decision = policy.evaluate(
+      base({
+        now: new Date('2026-09-29T18:00:00.000Z'),
+        lastNotificationAt: new Date('2026-09-29T17:30:00.000Z'),
+        forceNotify: true,
+      }),
+    );
+    expect(decision).toMatchObject({ allow: true, action: 'SEND', reason: 'FORCE_NOTIFY' });
+  });
 });
 
 function base(overrides: Partial<PolicyInput>): PolicyInput {
@@ -45,6 +55,7 @@ function base(overrides: Partial<PolicyInput>): PolicyInput {
     cooldownHours: 4,
     priority: 'NORMAL',
     eligible: true,
+    forceNotify: false,
     ...overrides,
   };
 }

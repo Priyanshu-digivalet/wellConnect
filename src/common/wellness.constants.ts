@@ -30,12 +30,22 @@ export const AVAILABILITY_FIELDS = [
 ] as const;
 
 export const STATE_FEATURE_TYPES = {
-  ACTIVE: ['GYM', 'POOL'],
-  LOW_ACTIVITY: ['GYM', 'POOL'],
-  RECOVERY_NEEDED: ['SPA', 'POOL'],
-  SLEEP_FOCUS: ['SPA'],
-  BALANCED: ['GYM', 'POOL', 'RESTAURANT'],
-  INSUFFICIENT_DATA: [],
+  // Include legacy types (GYM/POOL/SPA/RESTAURANT) and catalog types (FACILITY/SERVICE/OUTLET).
+  ACTIVE: ['GYM', 'POOL', 'FACILITY'],
+  LOW_ACTIVITY: ['GYM', 'POOL', 'FACILITY'],
+  RECOVERY_NEEDED: ['SPA', 'POOL', 'SERVICE', 'FACILITY'],
+  SLEEP_FOCUS: ['SPA', 'SERVICE'],
+  BALANCED: ['GYM', 'POOL', 'RESTAURANT', 'FACILITY', 'OUTLET', 'SERVICE'],
+  // When health data is sparse/missing, still recommend from property catalog.
+  INSUFFICIENT_DATA: [
+    'GYM',
+    'POOL',
+    'SPA',
+    'RESTAURANT',
+    'FACILITY',
+    'SERVICE',
+    'OUTLET',
+  ],
 } as const;
 
 export const FEEDBACK_ACTIONS = [

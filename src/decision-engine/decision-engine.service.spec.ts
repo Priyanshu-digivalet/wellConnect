@@ -28,10 +28,18 @@ describe('DecisionEngineService', () => {
     expect(decision.reasonCode).toBe('BALANCED');
   });
 
-  it('returns insufficient data without letting later rules run', () => {
-    const decision = engine.decide(analytics({ activity: 'HIGH', sleep: 'HIGH', insufficientData: true }));
+  it('returns insufficient data only when no metric can be classified', () => {
+    const decision = engine.decide(
+      analytics({ activity: 'UNKNOWN', sleep: 'UNKNOWN', insufficientData: true }),
+    );
     expect(decision.state).toBe('INSUFFICIENT_DATA');
     expect(decision.reasonCode).toBe('INSUFFICIENT_DATA');
+  });
+
+  it('recommends from steps-only activity when sleep is unknown', () => {
+    const decision = engine.decide(analytics({ activity: 'LOW', sleep: 'UNKNOWN' }));
+    expect(decision.state).toBe('LOW_ACTIVITY');
+    expect(decision.reasonCode).toBe('LOW_ACTIVITY');
   });
 });
 

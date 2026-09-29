@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { WellnessAnalytics } from '../analytics/analytics.types';
-import { LOW_CONSISTENCY_SCORE, MIN_COMPLETENESS } from '../common/wellness.constants';
+import { LOW_CONSISTENCY_SCORE } from '../common/wellness.constants';
 import { REASON_BY_STATE, ReasonCode, WellnessState } from './decision.types';
 
 export interface WellnessDecision {
@@ -11,17 +11,39 @@ export interface WellnessDecision {
 @Injectable()
 export class DecisionEngineService {
   decide(analytics: WellnessAnalytics): WellnessDecision {
+    const activity = analytics.activity.level;
+    const sleep = analytics.sleep.level;
+
+    // Only when no metric can be classified (e.g. empty payload).
+    // Steps-only or any single param is enough to recommend.
     if (
       analytics.insufficientData ||
-      analytics.activity.level === 'UNKNOWN' ||
-      analytics.sleep.level === 'UNKNOWN' ||
-      analytics.dataQuality.completeness < MIN_COMPLETENESS
+      (activity === 'UNKNOWN' && sleep === 'UNKNOWN')
     ) {
       return decision('INSUFFICIENT_DATA');
     }
 
-    const activity = analytics.activity.level;
-    const sleep = analytics.sleep.level;
+    // Steps-only (or activity known, sleep missing): decide from activity.
+    if (sleep === 'UNKNOWN') {
+      if (activity === 'LOW') {
+        return decision('LOW_ACTIVITY');
+      }
+      if (activity === 'HIGH') {
+        return decision(
+          analytics.consistency.score < LOW_CONSISTENCY_SCORE ? 'BALANCED' : 'ACTIVE',
+        );
+      }
+      return decision('BALANCED');
+    }
+
+    // Sleep-only (or sleep known, activity missing): decide from sleep.
+    if (activity === 'UNKNOWN') {
+      if (sleep === 'LOW') {
+        return decision('SLEEP_FOCUS');
+      }
+      return decision('BALANCED');
+    }
+
     let state: WellnessState;
 
     if (activity === 'HIGH' && sleep === 'LOW') {

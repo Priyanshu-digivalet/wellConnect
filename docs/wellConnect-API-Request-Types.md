@@ -96,6 +96,9 @@ Response: `{ status, database, timestamp, environment }`
 | `appVersion` | string | Yes | Max 32 |
 | `platform` | enum | Yes | `ANDROID` \| `IOS` |
 | `timezone` | string | Yes | IANA tz, max 64 |
+| `deviceId` | string | No | With `fcmToken`, upserts `NotificationDevice` |
+| `fcmToken` | string | No | With `deviceId`, upserts `NotificationDevice` |
+| `notificationsEnabled` | boolean | No | Defaults to `true` when registering |
 
 #### `dataContext`
 
@@ -172,21 +175,38 @@ Response: `{ status, database, timestamp, environment }`
 
 ## 4. Wellness — Profile & recommendations
 
-### `GET /api/v1/wellness/profile`
+All of these routes require `wellnessUserId` as a query param so the response is scoped to that resident (same id used for health-data and device registration).
 
-**Request type:** None (identity from JWT)  
-No body. No query params.
+### `GET /api/v1/wellness/profile?wellnessUserId=wu_…`
 
-### `GET /api/v1/wellness/recommendations`
+| Query | Required | Notes |
+|-------|----------|-------|
+| `wellnessUserId` | Yes | Dynamic resident id |
+| `propertyId` | No | Defaults via auth/context |
 
-**Request type:** None (identity from JWT)  
-No body. No query params.
+### `GET /api/v1/wellness/recommendations?wellnessUserId=wu_…`
 
-### `POST /api/v1/wellness/recommendations/generate`
+| Query | Required | Notes |
+|-------|----------|-------|
+| `wellnessUserId` | Yes | Returns up to 20 recent recommendations for this user only |
+| `propertyId` | No | |
 
-**Request type:** Empty body  
-Authorization header only; uses stored health data for the authenticated user.
+### `GET /api/v1/wellness/recommendations/today?wellnessUserId=wu_…`
 
+| Query | Required | Notes |
+|-------|----------|-------|
+| `wellnessUserId` | Yes | |
+| `date` | No | `YYYY-MM-DD`, defaults to current UTC day |
+| `propertyId` | No | |
+
+### `POST /api/v1/wellness/recommendations/generate?wellnessUserId=wu_…`
+
+| Query | Required | Notes |
+|-------|----------|-------|
+| `wellnessUserId` | Yes | Generates from stored health data for this user |
+| `propertyId` | No | |
+
+Empty body.
 ---
 
 ## 5. Wellness — Feedback
@@ -221,14 +241,19 @@ Authorization header only; uses stored health data for the authenticated user.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
+| `wellnessUserId` | string | Yes | Dynamic resident id — device is stored under this user |
+| `propertyId` | string | Yes | Property the resident belongs to |
 | `deviceId` | string | Yes | 1–128 chars |
 | `platform` | enum | Yes | `ANDROID` \| `IOS` |
 | `fcmToken` | string | Yes | 1–4096 chars |
 | `appVersion` | string | Yes | Max 32 |
+| `timezone` | string | No | Defaults to `Asia/Kolkata` when creating the user |
 | `notificationsEnabled` | boolean | No | Optional |
 
 ```json
 {
+  "wellnessUserId": "wu_a3cfcd1bc9824269",
+  "propertyId": "property_001",
   "deviceId": "device-123",
   "platform": "ANDROID",
   "fcmToken": "fcm-token-from-firebase-sdk",

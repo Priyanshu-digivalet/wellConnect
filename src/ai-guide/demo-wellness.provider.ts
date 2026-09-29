@@ -76,10 +76,9 @@ const FEATURE_COPY: Record<WellnessState, Copy> = {
       `Activity and sleep look steady. The ${name.toLowerCase()} is available if you want a simple option on the property.`,
   },
   INSUFFICIENT_DATA: {
-    title: 'Still learning your rhythm',
+    title: 'NO Recommendation for now',
     category: 'GENERAL',
-    message: (name) =>
-      `A few more days of data will make suggestions more specific. The ${name.toLowerCase()} is available in the meantime.`,
+    message: () => 'NO Recommendation for now',
   },
 };
 
